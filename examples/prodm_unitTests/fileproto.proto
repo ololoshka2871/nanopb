@@ -3,9 +3,6 @@
 
 syntax = "proto2";
 
-// request device summary
-message GetSummary {}
-
 enum ValueOf {
 	TEMPERATURE_1 = 0;
 	TEMPERATURE_2 = 1;
@@ -17,9 +14,6 @@ enum ValueOf {
 message GetValue {
 	required ValueOf valueOf = 1;
 }
-
-// request all value 
-message GetValues {}
 
 // control
 message Control {
@@ -93,11 +87,9 @@ message GenericRequest {
 	required uint32 ReqId = 1;
 	required RequestType Type = 2;
 	optional TimeStamp timeStamp = 3;
-	optional GetSummary getSummary = 4;
-	optional GetValue getValue = 5;
-	optional GetValues getValues = 6;
-	optional Control setControl = 7;
-	optional Settings setSettings = 8;
+	optional GetValue getValue = 4;
+	optional Control setControl = 5;
+	optional Settings setSettings = 6;
 }
 
 // generic ansver

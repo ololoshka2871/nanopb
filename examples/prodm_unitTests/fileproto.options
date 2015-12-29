@@ -9,5 +9,6 @@
 # On the other hand, using the callback interface, it is not necessary
 # to set a limit on the number of files in the response.
 
-ListFilesRequest.path 	max_size:64
-FileInfo.name 		max_size:64
+Summary.name				max_size:32
+Summary.version				max_size:16
+Summary.manufacturer		max_size:32
