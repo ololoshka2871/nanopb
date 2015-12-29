@@ -1,0 +1,18 @@
+// A very simple protocol definition, consisting of only
+// one message.
+
+syntax = "proto2";
+
+message ListFilesRequest {
+    required string path = 1;
+}
+
+message FileInfo {
+    required int32 type = 1;
+    required string name = 2;
+}
+
+message ListFilesResponse {
+    optional bool path_error = 1 [default = false];
+    repeated FileInfo file = 2;
+}

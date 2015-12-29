@@ -1,0 +1,127 @@
+// A very simple protocol definition, consisting of only
+// one message.
+
+syntax = "proto2";
+
+// request device summary
+message GetSummary {}
+
+enum ValueOf {
+	TEMPERATURE_1 = 0;
+	TEMPERATURE_2 = 1;
+	F_T_1 = 2;
+	F_T_2 = 3;
+}
+
+// request value 
+message GetValue {
+	required ValueOf valueOf = 1;
+}
+
+// request all value 
+message GetValues {}
+
+// control
+message Control {
+	optional bool Cooler1_state = 1 [default = false];
+	optional bool Cooler2_state = 2 [default = false];
+	optional bool Pelt1_state = 3 [default = false];
+	optional bool Pelt2_state = 4 [default = false];
+}
+
+// Temperature Coeffs Message
+message T_Coeffs {
+	required float T0 = 1;
+	required float C1 = 2;
+	required float C2 = 3;
+	required float C3 = 4;
+	required float F0 = 5;	
+}
+
+// == struct timespec
+message TimeStamp {
+	required uint32 tv_sec = 1;
+	required uint64 tv_nsec = 2;
+}
+
+// Settings
+message Settings {
+	optional uint32 Temperature1MesureTime = 1;
+	optional uint32 Temperature2MesureTime = 2;
+	optional uint32 CpuSpeed = 3;
+	optional T_Coeffs CoeffsT1 = 4;
+	optional T_Coeffs CoeffsT2 = 5;
+	optional TimeStamp Clock = 6;
+}
+
+// Get Summary Ansver
+message Summary {
+	required string name = 1;
+	required string version = 2;
+	required string manufacturer = 3;
+	required Settings settings = 4;
+	required Control control = 5;
+}
+
+// value Ansver
+message Value {
+	required ValueOf valueOf = 1;
+	required TimeStamp timestamp = 2;
+	required float Value = 3;
+}
+
+// values Ansver
+message Values {
+	required TimeStamp timestamp = 1;
+	required float Temperature1 = 2;
+	required float Temperature2 = 3;
+	required float Ft1 = 4;
+	required float Ft2 = 5;
+}
+
+// generic request
+message GenericRequest {
+	enum RequestType {
+		PING = 0;
+		GET_SUMMARY = 1;
+		GET_VALUE = 2;
+		GET_VALUES = 3;
+		SET_CONTROL = 4;
+		SET_SETTINGS = 5;
+	}
+
+	required uint32 ReqId = 1;
+	required RequestType Type = 2;
+	optional TimeStamp timeStamp = 3;
+	optional GetSummary getSummary = 4;
+	optional GetValue getValue = 5;
+	optional GetValues getValues = 6;
+	optional Control setControl = 7;
+	optional Settings setSettings = 8;
+}
+
+// generic ansver
+message GenericAnsver {
+	enum ResponseType {
+		PONG = 0;
+		SUMMARY = 1;
+		VALUE = 2;
+		VALUES = 3;
+		UNKNOWN = 255;
+	}
+	
+	enum Status {
+		OK = 0;
+		VALUE_ERROR = 1;
+		PROTOCOL_ERROR = 2;
+		INTERNAL_ERROR = 3;
+	}
+	
+	required uint32 ReqId = 1;
+	required ResponseType Type = 2;
+	required Status status	= 3;
+	optional TimeStamp timeStamp = 4;
+	optional Summary summary = 5;
+	optional Value value = 6;
+	optional Values values = 7;
+}
