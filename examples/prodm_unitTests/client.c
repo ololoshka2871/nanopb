@@ -26,7 +26,7 @@
 #include "fileproto.pb.h"
 #include "common.h"
 
-typedef bool (*test_f)(FILE* f, int id);
+typedef bool (*test_f)(FILE* f, int id, bool verbose);
 
 struct test {
 	test_f routine;
@@ -46,7 +46,7 @@ struct timespec timeDelta(struct timespec *start, struct timespec *end) {
 }
 
 /* PING test */
-bool ping_test(FILE* f, int id)
+bool ping_test(FILE* f, int id, bool verbose)
 {
 	struct timespec start;
 	{
@@ -95,24 +95,27 @@ bool ping_test(FILE* f, int id)
 		clock_gettime(CLOCK_REALTIME, &stop);
 		struct timespec delta = timeDelta(&start, &stop);
 
-		printf("Success! (%u sec %u msec)",
+		if (verbose)
+			printf("Success! (%u sec %u msec)",
 				(unsigned int)delta.tv_sec, (unsigned int)(delta.tv_nsec / 1000000));
 
 		if (response.has_timeStamp)
 		{
 			struct tm _tm;
 			if (gmtime_r((const time_t*) &response.timeStamp, &_tm))
-				printf(" processed in %d:%d.%d", _tm.tm_min, _tm.tm_sec,
+				if (verbose)
+					printf(" processed in %d:%d.%d", _tm.tm_min, _tm.tm_sec,
 						(int)(response.timeStamp.tv_nsec / 1000000));
 		}
-		putchar('\n');
+		if (verbose)
+			putchar('\n');
 	}
 
     return true;
 }
 
 /* SUMMARY test */
-bool summary_test(FILE* f, int id) {
+bool summary_test(FILE* f, int id, bool verbose) {
 	struct timespec start;
 	{
 		GenericRequest request = {};
@@ -168,21 +171,38 @@ bool summary_test(FILE* f, int id) {
 				"Manufacturer:"
 			};
 
-			printf("-> %s = %s\n", parameter_names[0], response.summary.name);
-			printf("-> %s = %s\n", parameter_names[1], response.summary.version);
-			printf("-> %s = %s\n", parameter_names[2], response.summary.manufacturer);
-
-			printf("Success! (%u sec %u msec)",
-				(unsigned int)delta.tv_sec, (unsigned int)(delta.tv_nsec / 1000000));
-
-			if (response.has_timeStamp)
-			{
-				struct tm _tm;
-				if (gmtime_r((const time_t*) &response.timeStamp, &_tm))
-					printf(" processed in %d:%d.%d", _tm.tm_min, _tm.tm_sec,
-							(int)(response.timeStamp.tv_nsec / 1000000));
+			if (strcmp(response.summary.name, "Productomer")) {
+				printf("Invalid name returned: %s", response.summary.name);
+				return false;
 			}
-			putchar('\n');
+
+			if (strcmp(response.summary.manufacturer, "OOO SCTB Elpa")) {
+				printf("Invalid manufacturer returned: %s", response.summary.manufacturer);
+				return false;
+			}
+
+			if (strlen(response.summary.version) == 0) {
+				printf("Version string empty");
+				return false;
+			}
+
+			if (verbose) {
+				printf("-> %s = %s\n", parameter_names[0], response.summary.name);
+				printf("-> %s = %s\n", parameter_names[1], response.summary.version);
+				printf("-> %s = %s\n", parameter_names[2], response.summary.manufacturer);
+
+				printf("Success! (%u sec %u msec)",
+					(unsigned int)delta.tv_sec, (unsigned int)(delta.tv_nsec / 1000000));
+
+				if (response.has_timeStamp)
+				{
+					struct tm _tm;
+					if (gmtime_r((const time_t*) &response.timeStamp, &_tm))
+						printf(" processed in %d:%d.%d", _tm.tm_min, _tm.tm_sec,
+								(int)(response.timeStamp.tv_nsec / 1000000));
+				}
+				putchar('\n');
+			}
 			return true;
 		} else {
 			return false;
@@ -200,12 +220,19 @@ int main(int argc, char **argv)
     FILE* f;
     char *dev = NULL;
     int i;
+    bool verbose = false;
     
     if (argc > 1)
+    {
         dev = argv[1];
+        if (argc > 2 && !strcmp(argv[2], "-v")) {
+        	verbose = true;
+        }
+    }
     else
     {
-    	printf("USAGE: %s <file>\n", argv[0]);
+    	printf("USAGE: %s <file> [-v]\n", argv[0]);
+    	return 0;
     }
     
     f = fopen(dev, "w+");
@@ -215,15 +242,17 @@ int main(int argc, char **argv)
         perror("dev open");
         return 1;
     }
+    setvbuf(f, NULL, _IONBF, 0);
     
     for (i = 0; i < sizeof(tests) / sizeof(struct test); ++i)
     {
-    	printf("--- Running %s ---\n", tests[i].desc);
-    	if (tests[i].routine(f, i))
+    	printf("--- Running %s ", tests[i].desc);
+    	if (verbose)
+    		printf("---\n");
+    	if (tests[i].routine(f, i, verbose))
     		printf("--- PASSED\n");
     	else
     		printf("--- FAILED\n");
-    	putchar('\n');
     }
     
     /* Close connection */
