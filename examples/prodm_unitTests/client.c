@@ -329,7 +329,7 @@ bool values_test(FILE* f, int id, bool verbose) {
 					return false;
 
 				strftime(buff, sizeof(buff), "%H:%M:%S", &Timestamp_dt);
-				printf("Values %f\t%f\t%f\t%f at\n\t%s.%" PRIu64 "\n",
+				printf("Values:\n\t%f\n\t%f\n\t%f\n\t%f\n\tat %s.%" PRIu64 "\n",
 						response.values.Temperature1,
 						response.values.Temperature2, response.values.Ft1,
 						response.values.Ft2, buff,
