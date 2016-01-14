@@ -19,6 +19,7 @@
 #include <sys/time.h>
 #include <time.h>
 #include <stdbool.h>
+#include <inttypes.h>
 
 #include <pb_encode.h>
 #include <pb_decode.h>
@@ -45,6 +46,55 @@ struct timespec timeDelta(struct timespec *start, struct timespec *end) {
 	return temp;
 }
 
+static void fillTimestampStart(struct timespec* start, GenericRequest* request) {
+	clock_gettime(CLOCK_REALTIME, start);
+	request->timeStamp.tv_sec = start->tv_sec;
+	request->timeStamp.tv_nsec = start->tv_nsec;
+	request->has_timeStamp = true;
+}
+
+static bool sendRequest(pb_ostream_t* outstream,
+		const pb_field_t fields[], const void *src_struct) {
+	if (!pb_encode(outstream, fields, src_struct))
+	{
+		printf("Error send request %s\n", PB_GET_ERROR(outstream));
+		return false;
+	}
+	return true;
+}
+
+static bool readAnsver(pb_istream_t* inputStream,
+		const pb_field_t fields[], void *dest_struct) {
+	if (!pb_decode(inputStream, fields, dest_struct))
+	{
+		printf("Decode failed: %s\n", PB_GET_ERROR(inputStream));
+		return false;
+	}
+	return true;
+}
+
+static bool checkAnsver(GenericAnsver* response, int OrigId) {
+	if (response->ReqId != OrigId)
+	{
+		printf("Incorrect ansver id (%d != %d)\n", OrigId, response->ReqId);
+		return false;
+	}
+
+	if (response->status != GenericAnsver_Status_OK)
+	{
+		printf("Device reports error (%d)\n", response->status);
+		return false;
+	}
+
+	return true;
+}
+
+static struct timespec requestTime(struct timespec *start) {
+	struct timespec stop;
+	clock_gettime(CLOCK_REALTIME, &stop);
+	return timeDelta(start, &stop);
+}
+
 /* PING test */
 bool ping_test(FILE* f, int id, bool verbose)
 {
@@ -54,18 +104,10 @@ bool ping_test(FILE* f, int id, bool verbose)
 		pb_ostream_t output = pb_ostream_from_file(f);
 		request.ReqId = id;
 		request.Type = GenericRequest_RequestType_PING;
-		request.has_timeStamp = true;
 
-		clock_gettime(CLOCK_REALTIME, &start);
-
-		request.timeStamp.tv_sec = start.tv_sec;
-		request.timeStamp.tv_nsec = start.tv_nsec;
-
-		if (!pb_encode(&output, GenericRequest_fields, &request))
-		{
-			printf("Error send request %s\n", PB_GET_ERROR(&output));
+		fillTimestampStart(&start, &request);
+		if (!sendRequest(&output, GenericRequest_fields, &request))
 			return false;
-		}
 	}
 
 	{
@@ -73,27 +115,13 @@ bool ping_test(FILE* f, int id, bool verbose)
 
 		pb_istream_t input = pb_istream_from_file(f);
 
-		if (!pb_decode(&input, GenericAnsver_fields, &response))
-		{
-			printf("Decode failed: %s\n", PB_GET_ERROR(&input));
+		if (!readAnsver(&input, GenericAnsver_fields, &response))
 			return false;
-		}
 
-		if (response.ReqId != id)
-		{
-			printf("Incorrect ansver id (%d != %d)\n", id, response.ReqId);
+		if (!checkAnsver(&response, id))
 			return false;
-		}
 
-		if (response.status != GenericAnsver_Status_OK)
-		{
-			printf("Device reports error (%d)\n", response.status);
-			return false;
-		}
-
-		struct timespec stop;
-		clock_gettime(CLOCK_REALTIME, &stop);
-		struct timespec delta = timeDelta(&start, &stop);
+		struct timespec delta = requestTime(&start);
 
 		if (verbose)
 			printf("Success! (%u sec %u msec)",
@@ -122,18 +150,10 @@ bool summary_test(FILE* f, int id, bool verbose) {
 		pb_ostream_t output = pb_ostream_from_file(f);
 		request.ReqId = id;
 		request.Type = GenericRequest_RequestType_GET_SUMMARY;
-		request.has_timeStamp = true;
 
-		clock_gettime(CLOCK_REALTIME, &start);
-
-		request.timeStamp.tv_sec = start.tv_sec;
-		request.timeStamp.tv_nsec = start.tv_nsec;
-
-		if (!pb_encode(&output, GenericRequest_fields, &request))
-		{
-			printf("Error send request %s\n", PB_GET_ERROR(&output));
+		fillTimestampStart(&start, &request);
+		if (!sendRequest(&output, GenericRequest_fields, &request))
 			return false;
-		}
 	}
 
 	{
@@ -141,27 +161,13 @@ bool summary_test(FILE* f, int id, bool verbose) {
 
 		pb_istream_t input = pb_istream_from_file(f);
 
-		if (!pb_decode(&input, GenericAnsver_fields, &response))
-		{
-			printf("Decode failed: %s\n", PB_GET_ERROR(&input));
+		if (!readAnsver(&input, GenericAnsver_fields, &response))
 			return false;
-		}
 
-		if (response.ReqId != id)
-		{
-			printf("Incorrect ansver id (%d != %d)\n", id, response.ReqId);
+		if (!checkAnsver(&response, id))
 			return false;
-		}
 
-		if (response.status != GenericAnsver_Status_OK)
-		{
-			printf("Device reports error (%d)\n", response.status);
-			return false;
-		}
-
-		struct timespec stop;
-		clock_gettime(CLOCK_REALTIME, &stop);
-		struct timespec delta = timeDelta(&start, &stop);
+		struct timespec delta = requestTime(&start);
 
 		if (response.has_summary)
 		{
@@ -210,9 +216,83 @@ bool summary_test(FILE* f, int id, bool verbose) {
 	}
 }
 
+bool value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
+	struct timespec start;
+	{
+		GenericRequest request = {};
+		pb_ostream_t output = pb_ostream_from_file(f);
+		request.ReqId = id;
+		request.Type = GenericRequest_RequestType_GET_VALUE;
+		request.getValue.valueOf = valueOf;
+		request.has_getValue = true;
+
+		fillTimestampStart(&start, &request);
+		if (!sendRequest(&output, GenericRequest_fields, &request))
+			return false;
+	}
+
+	{
+		GenericAnsver response = {};
+
+		pb_istream_t input = pb_istream_from_file(f);
+
+		if (!readAnsver(&input, GenericAnsver_fields, &response))
+			return false;
+
+		if (!checkAnsver(&response, id))
+			return false;
+
+		struct timespec delta = requestTime(&start);
+
+		if (response.has_value) {
+
+			if (response.value.valueOf != valueOf) {
+				printf("Incorrect response valueOf: %d, requested %d",
+						response.value.valueOf, valueOf);
+				return false;
+			}
+
+
+			if (verbose) {
+				char buff[72];
+				struct tm Timestamp_dt;
+
+				printf("Success! (%u sec %u msec)",
+					(unsigned int)delta.tv_sec, (unsigned int)(delta.tv_nsec / 1000000));
+
+				if (gmtime_r((const time_t *)&response.value.timestamp.tv_sec,
+						&Timestamp_dt) == NULL)
+					return false;
+
+				strftime(buff, sizeof(buff), "%H:%M:%S", &Timestamp_dt);
+				printf("Value %d returns: %f at %s.%" PRIu64 "\n",
+						ValueOf_TEMPERATURE_1, response.value.Value, buff,
+						response.value.timestamp.tv_nsec);
+			}
+
+			return true;
+		}
+		return false;
+	}
+}
+
+/* VALUE test */
+bool value_test(FILE* f, int id, bool verbose) {
+
+	for (ValueOf valueof = ValueOf_TEMPERATURE_1; valueof <= ValueOf_F_T_2; ++valueof) {
+		if (verbose)
+			printf("Trying value %d...\t", valueof);
+
+		if (!value_test_1(f, id, verbose, valueof))
+			return false;
+	}
+	return true;
+}
+
 static struct test tests[] = {
 	{ ping_test, "PING test" },
-	{ summary_test, "SUMMARY test" }
+	{ summary_test, "SUMMARY test" },
+	{ value_test, "VALUE test" },
 };
 
 int main(int argc, char **argv)
