@@ -251,8 +251,10 @@ int main(int argc, char **argv)
     		printf("---\n");
     	if (tests[i].routine(f, i, verbose))
     		printf("--- PASSED\n");
-    	else
+    	else {
     		printf("--- FAILED\n");
+    		break;
+    	}
     }
     
     /* Close connection */
