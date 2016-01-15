@@ -28,7 +28,13 @@
 #include "fileproto.pb.h"
 #include "common.h"
 
-typedef bool (*test_f)(FILE* f, int id, bool verbose);
+#define MAX_RETRYS 3
+
+enum enError_Type {
+	ERR_OK = 0, ERR_IO, ERR_UNKNOWN = 255
+};
+
+typedef enum enError_Type (*test_f)(FILE* f, int id, bool verbose);
 
 struct test {
 	test_f routine;
@@ -47,6 +53,12 @@ struct timespec timeDelta(struct timespec *start, struct timespec *end) {
 	return temp;
 }
 
+static struct timespec TimePassedfrom(struct timespec *start) {
+	struct timespec stop;
+	clock_gettime(CLOCK_REALTIME, &stop);
+	return timeDelta(start, &stop);
+}
+
 static void fillTimestampStart(struct timespec* start, GenericRequest* request) {
 	clock_gettime(CLOCK_REALTIME, start);
 	request->timeStamp.tv_sec = start->tv_sec;
@@ -63,13 +75,15 @@ static bool sendRequest(pb_ostream_t* outstream, const pb_field_t fields[],
 	return true;
 }
 
-static bool readAnsver(pb_istream_t* inputStream, const pb_field_t fields[],
-		void *dest_struct) {
+static enum enError_Type readAnsver(pb_istream_t* inputStream,
+		const pb_field_t fields[], void *dest_struct) {
 	if (!pb_decode(inputStream, fields, dest_struct)) {
-		printf("Decode failed: %s\n", PB_GET_ERROR(inputStream));
-		return false;
+		//printf("Decode failed: %s\n", PB_GET_ERROR(inputStream));
+		if (!strcmp(PB_GET_ERROR(inputStream), "io error"))
+			return ERR_IO;
+		return ERR_UNKNOWN;
 	}
-	return true;
+	return ERR_OK;
 }
 
 static bool checkAnsver(GenericAnsver* response, int OrigId,
@@ -83,66 +97,16 @@ static bool checkAnsver(GenericAnsver* response, int OrigId,
 		return false;
 	}
 	if (response->Type != type) {
-		printf("Incorrect response type: %d, mast be %d\n", response->Type, type);
+		printf("Incorrect response type: %d, mast be %d\n", response->Type,
+				type);
 		return false;
 	}
 
 	return true;
 }
 
-static struct timespec TimePassedfrom(struct timespec *start) {
-	struct timespec stop;
-	clock_gettime(CLOCK_REALTIME, &stop);
-	return timeDelta(start, &stop);
-}
-
-/* PING test */
-bool ping_test(FILE* f, int id, bool verbose) {
-	struct timespec start;
-	{
-		GenericRequest request = { };
-		pb_ostream_t output = pb_ostream_from_file(f);
-		request.ReqId = id;
-		request.Type = GenericRequest_RequestType_PING;
-
-		fillTimestampStart(&start, &request);
-		if (!sendRequest(&output, GenericRequest_fields, &request))
-			return false;
-	}
-
-	{
-		GenericAnsver response = { };
-
-		pb_istream_t input = pb_istream_from_file(f);
-
-		if (!readAnsver(&input, GenericAnsver_fields, &response))
-			return false;
-
-		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_PONG))
-			return false;
-
-		struct timespec delta = TimePassedfrom(&start);
-
-		if (verbose)
-			printf("Success! (%u sec %u msec)", (unsigned int) delta.tv_sec,
-					(unsigned int) (delta.tv_nsec / 1000000));
-
-		if (response.has_timeStamp) {
-			struct tm _tm;
-			if (gmtime_r((const time_t*) &response.timeStamp, &_tm))
-				if (verbose)
-					printf(" processed in %d:%d.%d", _tm.tm_min, _tm.tm_sec,
-							(int) (response.timeStamp.tv_nsec / 1000000));
-		}
-		if (verbose)
-			putchar('\n');
-	}
-
-	return true;
-}
-
-static bool GetSummary(Summary *summary, FILE* f, int id, bool verbose,
-		struct timespec *delta) {
+static enum enError_Type GetSummary(Summary *summary, FILE* f, int id,
+bool verbose, struct timespec *delta) {
 	assert(summary);
 	assert(f);
 	assert(delta);
@@ -163,12 +127,14 @@ static bool GetSummary(Summary *summary, FILE* f, int id, bool verbose,
 		GenericAnsver response = { };
 
 		pb_istream_t input = pb_istream_from_file(f);
+		enum enError_Type err;
 
-		if (!readAnsver(&input, GenericAnsver_fields, &response))
-			return false;
+		err = readAnsver(&input, GenericAnsver_fields, &response);
+		if (err != ERR_OK)
+			return err;
 
 		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_SUMMARY))
-			return false;
+			return ERR_UNKNOWN;
 
 		*delta = TimePassedfrom(&start);
 
@@ -176,7 +142,8 @@ static bool GetSummary(Summary *summary, FILE* f, int id, bool verbose,
 			memcpy(summary, &response.summary, sizeof(Summary));
 
 			if (verbose) {
-				printf("Success! (%u sec %u msec)", (unsigned int) (delta->tv_sec),
+				printf("Success! (%u sec %u msec)",
+						(unsigned int) (delta->tv_sec),
 						(unsigned int) (delta->tv_nsec / 1000000));
 
 				if (response.has_timeStamp) {
@@ -188,47 +155,95 @@ static bool GetSummary(Summary *summary, FILE* f, int id, bool verbose,
 				putchar('\n');
 			}
 
-			return true;
+			return ERR_OK;
 		} else {
-			return false;
+			return ERR_UNKNOWN;
 		}
 	}
 }
 
+/* PING test */
+enum enError_Type ping_test(FILE* f, int id, bool verbose) {
+	struct timespec start;
+	{
+		GenericRequest request = { };
+		pb_ostream_t output = pb_ostream_from_file(f);
+		request.ReqId = id;
+		request.Type = GenericRequest_RequestType_PING;
+
+		fillTimestampStart(&start, &request);
+		if (!sendRequest(&output, GenericRequest_fields, &request))
+			return ERR_UNKNOWN;
+	}
+
+	{
+		GenericAnsver response = { };
+
+		pb_istream_t input = pb_istream_from_file(f);
+		enum enError_Type err;
+
+		err = readAnsver(&input, GenericAnsver_fields, &response);
+		if (err != ERR_OK)
+			return err;
+
+		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_PONG))
+			return ERR_UNKNOWN;
+
+		struct timespec delta = TimePassedfrom(&start);
+
+		if (verbose)
+			printf("Success! (%u sec %u msec)", (unsigned int) delta.tv_sec,
+					(unsigned int) (delta.tv_nsec / 1000000));
+
+		if (response.has_timeStamp) {
+			struct tm _tm;
+			if (gmtime_r((const time_t*) &response.timeStamp, &_tm))
+				if (verbose)
+					printf(" processed in %d:%d.%d", _tm.tm_min, _tm.tm_sec,
+							(int) (response.timeStamp.tv_nsec / 1000000));
+		}
+		if (verbose)
+			putchar('\n');
+	}
+
+	return ERR_OK;
+}
+
 /* SUMMARY test */
-bool summary_test(FILE* f, int id, bool verbose) {
+enum enError_Type summary_test(FILE* f, int id, bool verbose) {
 	Summary summary;
 	struct timespec delta;
 
-	GetSummary(&summary, f, id, verbose, &delta);
+	enum enError_Type err = GetSummary(&summary, f, id, verbose, &delta);
+	if (err != ERR_OK)
+		return err;
+
 	const char *parameter_names[] = { "Name:", "Version:", "Manufacturer:" };
 
 	if (strcmp(summary.name, "Productomer")) {
 		printf("Invalid name returned: %s", summary.name);
-		return false;
+		return ERR_UNKNOWN;
 	}
 
 	if (strcmp(summary.manufacturer, "OOO SCTB Elpa")) {
-		printf("Invalid manufacturer returned: %s",
-				summary.manufacturer);
-		return false;
+		printf("Invalid manufacturer returned: %s", summary.manufacturer);
+		return ERR_UNKNOWN;
 	}
 
 	if (strlen(summary.version) == 0) {
 		printf("Version string empty");
-		return false;
+		return ERR_UNKNOWN;
 	}
 
 	if (verbose) {
 		printf("-> %s = %s\n", parameter_names[0], summary.name);
 		printf("-> %s = %s\n", parameter_names[1], summary.version);
-		printf("-> %s = %s\n", parameter_names[2],
-				summary.manufacturer);
+		printf("-> %s = %s\n", parameter_names[2], summary.manufacturer);
 	}
-	return true;
+	return ERR_OK;
 }
 
-bool value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
+enum enError_Type value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 	struct timespec start;
 	{
 		GenericRequest request = { };
@@ -240,19 +255,21 @@ bool value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 
 		fillTimestampStart(&start, &request);
 		if (!sendRequest(&output, GenericRequest_fields, &request))
-			return false;
+			return ERR_UNKNOWN;
 	}
 
 	{
 		GenericAnsver response = { };
 
 		pb_istream_t input = pb_istream_from_file(f);
+		enum enError_Type err;
 
-		if (!readAnsver(&input, GenericAnsver_fields, &response))
-			return false;
+		err = readAnsver(&input, GenericAnsver_fields, &response);
+		if (err != ERR_OK)
+			return err;
 
 		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_VALUE))
-			return false;
+			return ERR_UNKNOWN;
 
 		struct timespec delta = TimePassedfrom(&start);
 
@@ -261,7 +278,7 @@ bool value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 			if (response.value.valueOf != valueOf) {
 				printf("Incorrect response valueOf: %d, requested %d",
 						response.value.valueOf, valueOf);
-				return false;
+				return ERR_UNKNOWN;
 			}
 
 			if (verbose) {
@@ -274,7 +291,7 @@ bool value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 
 				if (gmtime_r((const time_t *) &response.value.timestamp.tv_sec,
 						&Timestamp_dt) == NULL)
-					return false;
+					return ERR_UNKNOWN;
 
 				strftime(buff, sizeof(buff), "%H:%M:%S", &Timestamp_dt);
 				printf("Value %d returns: %f at %s.%" PRIu64 "\n",
@@ -282,29 +299,32 @@ bool value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 						response.value.timestamp.tv_nsec);
 			}
 
-			return true;
+			return ERR_OK;
 		}
 		printf("Missing Value field");
-		return false;
+		return ERR_UNKNOWN;
 	}
 }
 
 /* VALUE test */
-bool value_test(FILE* f, int id, bool verbose) {
+enum enError_Type value_test(FILE* f, int id, bool verbose) {
+
+	enum enError_Type err;
 
 	for (ValueOf valueof = ValueOf_TEMPERATURE_1; valueof <= ValueOf_F_T_2;
 			++valueof) {
 		if (verbose)
 			printf("Trying value %d...\t", valueof);
 
-		if (!value_test_1(f, id, verbose, valueof))
-			return false;
+		err = value_test_1(f, id, verbose, valueof);
+		if (err != ERR_OK)
+			return err;
 	}
-	return true;
+	return ERR_OK;
 }
 
 /* VALUES test */
-bool values_test(FILE* f, int id, bool verbose) {
+enum enError_Type values_test(FILE* f, int id, bool verbose) {
 	struct timespec start;
 	{
 		GenericRequest request = { };
@@ -314,19 +334,21 @@ bool values_test(FILE* f, int id, bool verbose) {
 
 		fillTimestampStart(&start, &request);
 		if (!sendRequest(&output, GenericRequest_fields, &request))
-			return false;
+			return ERR_UNKNOWN;
 	}
 
 	{
 		GenericAnsver response = { };
 
 		pb_istream_t input = pb_istream_from_file(f);
+		enum enError_Type err;
 
-		if (!readAnsver(&input, GenericAnsver_fields, &response))
-			return false;
+		err = readAnsver(&input, GenericAnsver_fields, &response);
+		if (err != ERR_OK)
+			return err;
 
 		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_VALUES))
-			return false;
+			return ERR_UNKNOWN;
 
 		struct timespec delta = TimePassedfrom(&start);
 
@@ -341,7 +363,7 @@ bool values_test(FILE* f, int id, bool verbose) {
 
 				if (gmtime_r((const time_t *) &response.values.timestamp.tv_sec,
 						&Timestamp_dt) == NULL)
-					return false;
+					return ERR_UNKNOWN;
 
 				strftime(buff, sizeof(buff), "%H:%M:%S", &Timestamp_dt);
 				printf("Values:\n\t%f\n\t%f\n\t%f\n\t%f\n\tat %s.%" PRIu64 "\n",
@@ -351,15 +373,17 @@ bool values_test(FILE* f, int id, bool verbose) {
 						response.values.timestamp.tv_nsec);
 			}
 
-			return true;
+			return ERR_OK;
 		}
 		printf("Missing Values field");
-		return false;
+		return ERR_UNKNOWN;
 	}
 }
 
-static bool set_control_test1(FILE* f, int id, bool verbose, const char pattern) {
+static enum enError_Type set_control_test1(FILE* f, int id, bool verbose,
+		const char pattern) {
 	struct timespec start;
+	enum enError_Type err;
 	{
 		GenericRequest request = { };
 		pb_ostream_t output = pb_ostream_from_file(f);
@@ -367,7 +391,6 @@ static bool set_control_test1(FILE* f, int id, bool verbose, const char pattern)
 		request.Type = GenericRequest_RequestType_SET_CONTROL;
 
 		request.has_setControl = true;
-
 
 		if (pattern & (1 << 0)) {
 			request.setControl.Cooler1_state = true;
@@ -389,7 +412,7 @@ static bool set_control_test1(FILE* f, int id, bool verbose, const char pattern)
 
 		fillTimestampStart(&start, &request);
 		if (!sendRequest(&output, GenericRequest_fields, &request))
-			return false;
+			return ERR_UNKNOWN;
 	}
 
 	{
@@ -397,18 +420,21 @@ static bool set_control_test1(FILE* f, int id, bool verbose, const char pattern)
 
 		pb_istream_t input = pb_istream_from_file(f);
 
-		if (!readAnsver(&input, GenericAnsver_fields, &response))
-			return false;
+		err = readAnsver(&input, GenericAnsver_fields, &response);
+		if (err != ERR_OK)
+			return err;
 
 		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_ACCEPT))
-			return false;
+			return ERR_UNKNOWN;
 	}
 
 	{
 		Summary summary;
 		struct timespec delta;
 
-		GetSummary(&summary, f, id, verbose, &delta);
+		err = GetSummary(&summary, f, id, verbose, &delta);
+		if (err != ERR_OK)
+			return err;
 
 		uint8_t result = 0;
 
@@ -422,28 +448,31 @@ static bool set_control_test1(FILE* f, int id, bool verbose, const char pattern)
 			result |= summary.control.Pelt2_state ? (1 << 3) : 0;
 
 		if (result != pattern) {
-			printf("Incorrect control result: 0x%X, must be 0x%X\n",
-					result, pattern);
-			return false;
+			printf("Incorrect control result: 0x%X, must be 0x%X\n", result,
+					pattern);
+			return ERR_UNKNOWN;
 		}
 	}
 
-	return true;
+	return ERR_OK;
 }
 
 /* SET_CONTROL test */
-bool set_control_test(FILE* f, int id, bool verbose) {
+enum enError_Type set_control_test(FILE* f, int id, bool verbose) {
 	const char testTable[] = { 0, 1 << 0, 1 << 1, 1 << 2, 1 << 3, 1 << 0
 			| 1 << 2, 1 << 1 | 1 << 3, 1 << 0 | 1 << 2 | 1 << 1 | 1 << 3 };
+
+	enum enError_Type err;
 
 	for (int i = 0; i < sizeof(testTable); ++i) {
 		if (verbose)
 			printf("Trying pattern 0x%1X\t", testTable[i]);
 
-		if (!set_control_test1(f, id, verbose, testTable[i]))
-			return false;
+		err = set_control_test1(f, id, verbose, testTable[i]);
+		if (err != ERR_OK)
+			return err;
 	}
-	return true;
+	return ERR_OK;
 }
 
 static struct test tests[] = { { ping_test, "PING test" }, { summary_test,
@@ -474,18 +503,41 @@ int main(int argc, char **argv) {
 	}
 	setvbuf(f, NULL, _IONBF, 0);
 
+	enum enError_Type err;
+	int retrys = MAX_RETRYS;
+
 	for (i = 0; i < sizeof(tests) / sizeof(struct test); ++i) {
 		printf("--- Running %s ", tests[i].desc);
 		if (verbose)
 			printf("---\n");
-		if (tests[i].routine(f, i, verbose))
-			printf("--- PASSED\n");
-		else {
-			printf("--- FAILED\n");
+		while (true) {
+			err = tests[i].routine(f, i, verbose);
+
+			switch (err) {
+			case ERR_OK:
+				printf("--- PASSED\n");
+				retrys = MAX_RETRYS;
+				break;
+			case ERR_IO:
+				retrys--;
+				if (!retrys) {
+					printf("--- IO ERRORS, STOP ---");
+					goto __FAIL;
+				}
+
+				if (verbose)
+					printf("--- IO ERROR, retry (%d)\n", retrys);
+
+				continue;
+			default:
+				printf("--- FAILED (%d)\n", err);
+				goto __FAIL;
+			}
 			break;
 		}
 	}
-
+__FAIL:
+	putchar('\n');
 	/* Close connection */
 	fclose(f);
 
