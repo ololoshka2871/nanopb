@@ -20,6 +20,7 @@
 #include <time.h>
 #include <stdbool.h>
 #include <inttypes.h>
+#include <assert.h>
 
 #include <pb_encode.h>
 #include <pb_decode.h>
@@ -82,14 +83,14 @@ static bool checkAnsver(GenericAnsver* response, int OrigId,
 		return false;
 	}
 	if (response->Type != type) {
-		printf("Incorrect response type: %d, mast me %d", response->Type, type);
+		printf("Incorrect response type: %d, mast be %d\n", response->Type, type);
 		return false;
 	}
 
 	return true;
 }
 
-static struct timespec requestTime(struct timespec *start) {
+static struct timespec TimePassedfrom(struct timespec *start) {
 	struct timespec stop;
 	clock_gettime(CLOCK_REALTIME, &stop);
 	return timeDelta(start, &stop);
@@ -120,7 +121,7 @@ bool ping_test(FILE* f, int id, bool verbose) {
 		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_PONG))
 			return false;
 
-		struct timespec delta = requestTime(&start);
+		struct timespec delta = TimePassedfrom(&start);
 
 		if (verbose)
 			printf("Success! (%u sec %u msec)", (unsigned int) delta.tv_sec,
@@ -140,8 +141,12 @@ bool ping_test(FILE* f, int id, bool verbose) {
 	return true;
 }
 
-/* SUMMARY test */
-bool summary_test(FILE* f, int id, bool verbose) {
+static bool GetSummary(Summary *summary, FILE* f, int id, bool verbose,
+		struct timespec *delta) {
+	assert(summary);
+	assert(f);
+	assert(delta);
+
 	struct timespec start;
 	{
 		GenericRequest request = { };
@@ -165,38 +170,14 @@ bool summary_test(FILE* f, int id, bool verbose) {
 		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_SUMMARY))
 			return false;
 
-		struct timespec delta = requestTime(&start);
+		*delta = TimePassedfrom(&start);
 
 		if (response.has_summary) {
-			const char *parameter_names[] = { "Name:", "Version:",
-					"Manufacturer:" };
-
-			if (strcmp(response.summary.name, "Productomer")) {
-				printf("Invalid name returned: %s", response.summary.name);
-				return false;
-			}
-
-			if (strcmp(response.summary.manufacturer, "OOO SCTB Elpa")) {
-				printf("Invalid manufacturer returned: %s",
-						response.summary.manufacturer);
-				return false;
-			}
-
-			if (strlen(response.summary.version) == 0) {
-				printf("Version string empty");
-				return false;
-			}
+			memcpy(summary, &response.summary, sizeof(Summary));
 
 			if (verbose) {
-				printf("-> %s = %s\n", parameter_names[0],
-						response.summary.name);
-				printf("-> %s = %s\n", parameter_names[1],
-						response.summary.version);
-				printf("-> %s = %s\n", parameter_names[2],
-						response.summary.manufacturer);
-
-				printf("Success! (%u sec %u msec)", (unsigned int) delta.tv_sec,
-						(unsigned int) (delta.tv_nsec / 1000000));
+				printf("Success! (%u sec %u msec)", (unsigned int) (delta->tv_sec),
+						(unsigned int) (delta->tv_nsec / 1000000));
 
 				if (response.has_timeStamp) {
 					struct tm _tm;
@@ -206,11 +187,45 @@ bool summary_test(FILE* f, int id, bool verbose) {
 				}
 				putchar('\n');
 			}
+
 			return true;
 		} else {
 			return false;
 		}
 	}
+}
+
+/* SUMMARY test */
+bool summary_test(FILE* f, int id, bool verbose) {
+	Summary summary;
+	struct timespec delta;
+
+	GetSummary(&summary, f, id, verbose, &delta);
+	const char *parameter_names[] = { "Name:", "Version:", "Manufacturer:" };
+
+	if (strcmp(summary.name, "Productomer")) {
+		printf("Invalid name returned: %s", summary.name);
+		return false;
+	}
+
+	if (strcmp(summary.manufacturer, "OOO SCTB Elpa")) {
+		printf("Invalid manufacturer returned: %s",
+				summary.manufacturer);
+		return false;
+	}
+
+	if (strlen(summary.version) == 0) {
+		printf("Version string empty");
+		return false;
+	}
+
+	if (verbose) {
+		printf("-> %s = %s\n", parameter_names[0], summary.name);
+		printf("-> %s = %s\n", parameter_names[1], summary.version);
+		printf("-> %s = %s\n", parameter_names[2],
+				summary.manufacturer);
+	}
+	return true;
 }
 
 bool value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
@@ -239,7 +254,7 @@ bool value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_VALUE))
 			return false;
 
-		struct timespec delta = requestTime(&start);
+		struct timespec delta = TimePassedfrom(&start);
 
 		if (response.has_value) {
 
@@ -313,7 +328,7 @@ bool values_test(FILE* f, int id, bool verbose) {
 		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_VALUES))
 			return false;
 
-		struct timespec delta = requestTime(&start);
+		struct timespec delta = TimePassedfrom(&start);
 
 		if (response.has_values) {
 			if (verbose) {
@@ -343,9 +358,97 @@ bool values_test(FILE* f, int id, bool verbose) {
 	}
 }
 
+static bool set_control_test1(FILE* f, int id, bool verbose, const char pattern) {
+	struct timespec start;
+	{
+		GenericRequest request = { };
+		pb_ostream_t output = pb_ostream_from_file(f);
+		request.ReqId = id;
+		request.Type = GenericRequest_RequestType_SET_CONTROL;
+
+		request.has_setControl = true;
+
+
+		if (pattern & (1 << 0)) {
+			request.setControl.Cooler1_state = true;
+		}
+		if (pattern & (1 << 1)) {
+			request.setControl.Cooler2_state = true;
+		}
+		if (pattern & (1 << 2)) {
+			request.setControl.Pelt1_state = true;
+		}
+		if (pattern & (1 << 3)) {
+			request.setControl.Pelt2_state = true;
+		}
+
+		request.setControl.has_Cooler1_state = true;
+		request.setControl.has_Cooler2_state = true;
+		request.setControl.has_Pelt1_state = true;
+		request.setControl.has_Pelt2_state = true;
+
+		fillTimestampStart(&start, &request);
+		if (!sendRequest(&output, GenericRequest_fields, &request))
+			return false;
+	}
+
+	{
+		GenericAnsver response = { };
+
+		pb_istream_t input = pb_istream_from_file(f);
+
+		if (!readAnsver(&input, GenericAnsver_fields, &response))
+			return false;
+
+		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_ACCEPT))
+			return false;
+	}
+
+	{
+		Summary summary;
+		struct timespec delta;
+
+		GetSummary(&summary, f, id, verbose, &delta);
+
+		uint8_t result = 0;
+
+		if (summary.control.has_Cooler1_state)
+			result |= summary.control.Cooler1_state ? (1 << 0) : 0;
+		if (summary.control.has_Cooler2_state)
+			result |= summary.control.Cooler2_state ? (1 << 1) : 0;
+		if (summary.control.has_Pelt1_state)
+			result |= summary.control.Pelt1_state ? (1 << 2) : 0;
+		if (summary.control.has_Pelt2_state)
+			result |= summary.control.Pelt2_state ? (1 << 3) : 0;
+
+		if (result != pattern) {
+			printf("Incorrect control result: 0x%X, must be 0x%X\n",
+					result, pattern);
+			return false;
+		}
+	}
+
+	return true;
+}
+
+/* SET_CONTROL test */
+bool set_control_test(FILE* f, int id, bool verbose) {
+	const char testTable[] = { 0, 1 << 0, 1 << 1, 1 << 2, 1 << 3, 1 << 0
+			| 1 << 2, 1 << 1 | 1 << 3, 1 << 0 | 1 << 2 | 1 << 1 | 1 << 3 };
+
+	for (int i = 0; i < sizeof(testTable); ++i) {
+		if (verbose)
+			printf("Trying pattern 0x%1X\t", testTable[i]);
+
+		if (!set_control_test1(f, id, verbose, testTable[i]))
+			return false;
+	}
+	return true;
+}
+
 static struct test tests[] = { { ping_test, "PING test" }, { summary_test,
 		"SUMMARY test" }, { value_test, "VALUE test" }, { values_test,
-		"VALUES test" } };
+		"VALUES test" }, { set_control_test, "SET_CONTROL test" } };
 
 int main(int argc, char **argv) {
 	FILE* f;

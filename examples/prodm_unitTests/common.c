@@ -24,7 +24,7 @@ static bool read_callback(pb_istream_t *stream, uint8_t *buf, size_t count)
 	FILE *file = (FILE*)stream->state;
 	bool status;
 	fd_set readfd;
-	struct timeval timeout = {0, 20000};
+	struct timeval timeout = {0, 10000};
 
 	if (buf == NULL)
 	{
@@ -46,6 +46,7 @@ static bool read_callback(pb_istream_t *stream, uint8_t *buf, size_t count)
 	FD_SET(file->_fileno, &readfd);
 	if (select(file->_fileno + 1, &readfd, NULL, NULL, &timeout) == 0)
 	{
+		fprintf(stderr, "\n!!!Timeout!!!\n");
 		stream->bytes_left = 0;
 		return false;
 	}

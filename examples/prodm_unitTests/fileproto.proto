@@ -99,6 +99,7 @@ message GenericAnsver {
 		SUMMARY = 1;
 		VALUE = 2;
 		VALUES = 3;
+		ACCEPT = 4;
 		UNKNOWN = 255;
 	}
 	
