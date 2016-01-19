@@ -33,7 +33,7 @@
 #define MAX_RETRYS 3
 
 enum enError_Type {
-	ERR_OK = 0, ERR_IO, ERR_UNKNOWN = 255
+	ERR_OK = 0, ERR_IO, ERR_IO_FAIL, ERR_UNKNOWN = 255
 };
 
 typedef enum enError_Type (*test_f)(FILE* f, int id, bool verbose);
@@ -493,7 +493,7 @@ enum enError_Type set_control_test(FILE* f, int id, bool verbose) {
 
 				retrys--;
 				if (!retrys)
-					return ERR_IO;
+					return ERR_IO_FAIL;
 
 				continue;
 			default:
@@ -692,7 +692,7 @@ static enum enError_Type test_settings1(FILE* f, int id, bool verbose,
 			return err;
 	}
 
-	usleep(10000);
+	//usleep(10000);
 
 	{
 		Summary summary;
@@ -800,7 +800,7 @@ bool verbose) {
 
 				retrys--;
 				if (!retrys)
-					return ERR_IO;
+					return ERR_IO_FAIL;
 
 				continue;
 			default:
@@ -872,6 +872,9 @@ int main(int argc, char **argv) {
 					printf(" --- IO ERROR, retry (%d)\n", retrys);
 
 				continue;
+			case ERR_IO_FAIL:
+				printf(" --- IO ERRORS, STOP ---");
+				break;
 			default:
 				printf(" --- FAILED (%d)\n", err);
 				goto __FAIL;
@@ -879,6 +882,8 @@ int main(int argc, char **argv) {
 			break;
 		}
 	}
+	printf("### ALL TESTS PASSED ###\n");
+
 	__FAIL: ProfilerStop();
 
 	putchar('\n');
