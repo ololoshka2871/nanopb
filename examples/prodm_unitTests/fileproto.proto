@@ -84,12 +84,13 @@ message GenericRequest {
 		SET_SETTINGS = 5;
 	}
 
-	required uint32 ReqId = 1;
-	required RequestType Type = 2;
-	optional TimeStamp timeStamp = 3;
-	optional GetValue getValue = 4;
-	optional Control setControl = 5;
-	optional Settings setSettings = 6;
+	required uint32 PROTOCOL_VERSION = 1;
+	required uint32 ReqId = 2;
+	required RequestType Type = 3;
+	optional TimeStamp timeStamp = 4;
+	optional GetValue getValue = 5;
+	optional Control setControl = 6;
+	optional Settings setSettings = 7;
 }
 
 // generic ansver
@@ -110,11 +111,12 @@ message GenericAnsver {
 		INTERNAL_ERROR = 3;
 	}
 	
-	required uint32 ReqId = 1;
-	required ResponseType Type = 2;
-	required Status status	= 3;
-	optional TimeStamp timeStamp = 4;
-	optional Summary summary = 5;
-	optional Value value = 6;
-	optional Values values = 7;
+	required uint32 PROTOCOL_VERSION = 1;
+	required uint32 ReqId = 2;
+	required ResponseType Type = 3;
+	required Status status	= 4;
+	optional TimeStamp timeStamp = 5;
+	optional Summary summary = 6;
+	optional Value value = 7;
+	optional Values values = 8;
 }

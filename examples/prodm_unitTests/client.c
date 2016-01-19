@@ -32,6 +32,8 @@
 
 #define MAX_RETRYS 3
 
+#define USED_PROTOCOL_VERSION 1
+
 enum enError_Type {
 	ERR_OK = 0, ERR_IO, ERR_IO_FAIL, ERR_UNKNOWN = 255
 };
@@ -92,6 +94,11 @@ static enum enError_Type readAnsver(pb_istream_t* inputStream,
 
 static bool checkAnsver(GenericAnsver* response, int OrigId,
 		GenericAnsver_ResponseType type) {
+	if (response->PROTOCOL_VERSION < USED_PROTOCOL_VERSION) {
+		printf("Device protocol version too small (%d), minimum %d needed",
+				response->PROTOCOL_VERSION, USED_PROTOCOL_VERSION);
+		return false;
+	}
 	if (response->status != GenericAnsver_Status_OK) {
 		printf("Device reports error (%d)\n", response->status);
 		return false;
@@ -125,6 +132,10 @@ static enum enError_Type getConfirmation(FILE* f, int id) {
 	return ERR_OK;
 }
 
+static void fillProtocolVersion(GenericRequest *request) {
+	request->PROTOCOL_VERSION = USED_PROTOCOL_VERSION;
+}
+
 static enum enError_Type GetSummary(Summary *summary, FILE* f, int id,
 bool verbose, struct timespec *delta) {
 	assert(summary);
@@ -139,6 +150,7 @@ bool verbose, struct timespec *delta) {
 		request.Type = GenericRequest_RequestType_GET_SUMMARY;
 
 		fillTimestampStart(&start, &request);
+		fillProtocolVersion(&request);
 		if (!sendRequest(&output, GenericRequest_fields, &request))
 			return false;
 	}
@@ -192,6 +204,7 @@ enum enError_Type ping_test(FILE* f, int id, bool verbose) {
 		request.Type = GenericRequest_RequestType_PING;
 
 		fillTimestampStart(&start, &request);
+		fillProtocolVersion(&request);
 		if (!sendRequest(&output, GenericRequest_fields, &request))
 			return ERR_UNKNOWN;
 	}
@@ -274,6 +287,7 @@ enum enError_Type value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 		request.has_getValue = true;
 
 		fillTimestampStart(&start, &request);
+		fillProtocolVersion(&request);
 		if (!sendRequest(&output, GenericRequest_fields, &request))
 			return ERR_UNKNOWN;
 	}
@@ -353,6 +367,7 @@ enum enError_Type values_test(FILE* f, int id, bool verbose) {
 		request.Type = GenericRequest_RequestType_GET_VALUES;
 
 		fillTimestampStart(&start, &request);
+		fillProtocolVersion(&request);
 		if (!sendRequest(&output, GenericRequest_fields, &request))
 			return ERR_UNKNOWN;
 	}
@@ -431,6 +446,7 @@ static enum enError_Type set_control_test1(FILE* f, int id, bool verbose,
 		request.setControl.has_Pelt2_state = true;
 
 		fillTimestampStart(&start, &request);
+		fillProtocolVersion(&request);
 		if (!sendRequest(&output, GenericRequest_fields, &request))
 			return ERR_UNKNOWN;
 	}
@@ -674,6 +690,7 @@ static enum enError_Type test_settings1(FILE* f, int id, bool verbose,
 				value->Temperature2MesureTime);
 
 	fillTimestampStart(&start, &request);
+	fillProtocolVersion(&request);
 	if (!sendRequest(&output, GenericRequest_fields, &request))
 		return ERR_UNKNOWN;
 
