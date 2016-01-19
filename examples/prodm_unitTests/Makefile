@@ -5,7 +5,7 @@ include ../../extra/nanopb.mk
 CFLAGS = -ansi -Wall -Werror -g -O0
 CFLAGS += -I$(NANOPB_DIR)
 CFLAGS += -std=gnu99
-LDFLAGS += -lprofiler
+LDFLAGS += -lprofiler -ltcmalloc
 
 COBJS = fileproto.pb.o client.o common.o
 

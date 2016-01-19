@@ -10,45 +10,45 @@
 
 #include <stdio.h>
 
-
 #include "common.h"
 
-static bool write_callback(pb_ostream_t *stream, const uint8_t *buf, size_t count)
-{
+static bool write_callback(pb_ostream_t *stream, const uint8_t *buf,
+		size_t count) {
 	FILE *file = (FILE*) stream->state;
 	return fwrite(buf, 1, count, file) == count;
 }
 
-static bool read_callback(pb_istream_t *stream, uint8_t *buf, size_t count)
-{
-	FILE *file = (FILE*)stream->state;
+static bool read_callback(pb_istream_t *stream, uint8_t *buf, size_t count) {
+	FILE *file = (FILE*) stream->state;
 	bool status;
 	fd_set readfd;
-	struct timeval timeout = {0, 100000};
+	struct timeval timeout = { 0, 100000 };
 
-	if (buf == NULL)
-	{
-	   while (count--)
-	   {
-		   timeout.tv_sec = 0;
-		   timeout.tv_usec = 1000;
-		   FD_ZERO(&readfd);
-		   FD_SET(file->_fileno, &readfd);
-		   if (select(file->_fileno + 1, &readfd, NULL, NULL, &timeout) < 0)
-			   break;
-		   else
-			   fgetc(file);
-	   }
-	   return count == 0;
+	if (buf == NULL) {
+		while (count--) {
+			timeout.tv_sec = 0;
+			timeout.tv_usec = 1000;
+			FD_ZERO(&readfd);
+			FD_SET(file->_fileno, &readfd);
+			if (select(file->_fileno + 1, &readfd, NULL, NULL, &timeout) < 0)
+				break;
+			else
+				fgetc(file);
+		}
+		return count == 0;
 	}
 
 	FD_ZERO(&readfd);
 	FD_SET(file->_fileno, &readfd);
-	if (select(file->_fileno + 1, &readfd, NULL, NULL, &timeout) == 0)
-	{
+	if (select(file->_fileno + 1, &readfd, NULL, NULL, &timeout) == 0) {
 		//fprintf(stderr, "\n!!!Timeout!!!\n");
-		stream->bytes_left = 0;
-		return false;
+		if (count == 1) {
+			*buf = '\0';
+			return true;
+		} else {
+			stream->bytes_left = 0;
+			return false;
+		}
 	}
 
 	status = (fread(buf, 1, count, file) == count);
@@ -70,7 +70,7 @@ static bool _read_callback(pb_istream_t *stream, uint8_t *buf, size_t count) {
 				*buf = '\0';
 				--count;
 			} else if (count)
-				printf("Ressive error, timeout");
+			printf("Ressive error, timeout");
 			stream->bytes_left = 0;
 			break;
 		} else {
@@ -88,14 +88,12 @@ static bool _read_callback(pb_istream_t *stream, uint8_t *buf, size_t count) {
 }
 #endif
 
-pb_ostream_t pb_ostream_from_file(FILE* f)
-{
-    pb_ostream_t stream = {&write_callback, (void*)f, SIZE_MAX, 0};
-    return stream;
+pb_ostream_t pb_ostream_from_file(FILE* f) {
+	pb_ostream_t stream = { &write_callback, (void*) f, SIZE_MAX, 0 };
+	return stream;
 }
 
-pb_istream_t pb_istream_from_file(FILE* f)
-{
-    pb_istream_t stream = {&read_callback, (void*)f, SIZE_MAX};
-    return stream;
+pb_istream_t pb_istream_from_file(FILE* f) {
+	pb_istream_t stream = { &read_callback, (void*) f, SIZE_MAX };
+	return stream;
 }
