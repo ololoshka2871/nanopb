@@ -42,7 +42,7 @@ message TimeStamp {
 message Settings {
 	optional uint32 Temperature1MesureTime = 1;
 	optional uint32 Temperature2MesureTime = 2;
-	optional uint32 CpuSpeed = 3;
+	optional float CpuSpeed = 3;
 	optional T_Coeffs CoeffsT1 = 4;
 	optional T_Coeffs CoeffsT2 = 5;
 	optional TimeStamp Clock = 6;

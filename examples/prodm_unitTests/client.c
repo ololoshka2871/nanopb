@@ -22,6 +22,8 @@
 #include <inttypes.h>
 #include <assert.h>
 
+#include <google/profiler.h>
+
 #include <pb_encode.h>
 #include <pb_decode.h>
 
@@ -72,13 +74,15 @@ static bool sendRequest(pb_ostream_t* outstream, const pb_field_t fields[],
 		printf("Error send request %s\n", PB_GET_ERROR(outstream));
 		return false;
 	}
+	fputc('\0', (FILE*) outstream->state);
+
 	return true;
 }
 
 static enum enError_Type readAnsver(pb_istream_t* inputStream,
 		const pb_field_t fields[], void *dest_struct) {
 	if (!pb_decode(inputStream, fields, dest_struct)) {
-		//printf("Decode failed: %s\n", PB_GET_ERROR(inputStream));
+		printf("Decode failed: %s\n", PB_GET_ERROR(inputStream));
 		if (!strcmp(PB_GET_ERROR(inputStream), "io error"))
 			return ERR_IO;
 		return ERR_UNKNOWN;
@@ -103,6 +107,22 @@ static bool checkAnsver(GenericAnsver* response, int OrigId,
 	}
 
 	return true;
+}
+
+static enum enError_Type getConfirmation(FILE* f, int id) {
+	enum enError_Type err;
+	GenericAnsver response = { };
+
+	pb_istream_t input = pb_istream_from_file(f);
+
+	err = readAnsver(&input, GenericAnsver_fields, &response);
+	if (err != ERR_OK)
+		return err;
+
+	if (!checkAnsver(&response, id, GenericAnsver_ResponseType_ACCEPT))
+		return ERR_UNKNOWN;
+
+	return ERR_OK;
 }
 
 static enum enError_Type GetSummary(Summary *summary, FILE* f, int id,
@@ -415,24 +435,15 @@ static enum enError_Type set_control_test1(FILE* f, int id, bool verbose,
 			return ERR_UNKNOWN;
 	}
 
-	{
-		GenericAnsver response = { };
-
-		pb_istream_t input = pb_istream_from_file(f);
-
-		err = readAnsver(&input, GenericAnsver_fields, &response);
-		if (err != ERR_OK)
-			return err;
-
-		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_ACCEPT))
-			return ERR_UNKNOWN;
-	}
+	err = getConfirmation(f, id);
+	if (err != ERR_OK)
+		return err;
 
 	{
 		Summary summary;
 		struct timespec delta;
 
-		err = GetSummary(&summary, f, id, verbose, &delta);
+		err = GetSummary(&summary, f, id + 1, verbose, &delta);
 		if (err != ERR_OK)
 			return err;
 
@@ -463,21 +474,348 @@ enum enError_Type set_control_test(FILE* f, int id, bool verbose) {
 			| 1 << 2, 1 << 1 | 1 << 3, 1 << 0 | 1 << 2 | 1 << 1 | 1 << 3 };
 
 	enum enError_Type err;
+	int retrys = MAX_RETRYS;
 
-	for (int i = 0; i < sizeof(testTable); ++i) {
+	for (int i = 0; i < sizeof(testTable) / sizeof(char); ++i) {
 		if (verbose)
 			printf("Trying pattern 0x%1X\t", testTable[i]);
+		while (true) {
+			err = set_control_test1(f, id, verbose, testTable[i]);
 
-		err = set_control_test1(f, id, verbose, testTable[i]);
+			switch (err) {
+			case ERR_OK:
+				retrys = MAX_RETRYS;
+				break;
+			case ERR_IO:
+
+				usleep(10000);
+				fflush(f);
+
+				retrys--;
+				if (!retrys)
+					return ERR_IO;
+
+				continue;
+			default:
+				return err;
+			}
+			break;
+		}
+	}
+	return ERR_OK;
+}
+
+/////////////////////////////////////////////////////////////////
+
+static void set_Settings_Temperature1MesureTime(GenericRequest* r,
+		uint16_t value) {
+	r->has_setSettings = true;
+	r->setSettings.has_Temperature1MesureTime = true;
+	r->setSettings.Temperature1MesureTime = value;
+}
+
+static void set_Settings_Temperature2MesureTime(GenericRequest* r,
+		uint16_t value) {
+	r->has_setSettings = true;
+	r->setSettings.has_Temperature2MesureTime = true;
+	r->setSettings.Temperature2MesureTime = value;
+}
+
+static void set_Settings_CPU_Speed(GenericRequest* r, float value) {
+	r->has_setSettings = true;
+	r->setSettings.has_CpuSpeed = true;
+	r->setSettings.CpuSpeed = value;
+}
+
+static void set_Settings_CoeffsT1(GenericRequest* r, const T_Coeffs *coeffs) {
+	r->has_setSettings = true;
+	r->setSettings.has_CoeffsT1 = true;
+	r->setSettings.CoeffsT1 = *coeffs;
+}
+
+static void set_Settings_CoeffsT2(GenericRequest* r, const T_Coeffs *coeffs) {
+	r->has_setSettings = true;
+	r->setSettings.has_CoeffsT2 = true;
+	r->setSettings.CoeffsT2 = *coeffs;
+}
+
+static void set_Settings_Clock(GenericRequest* r) {
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+
+	// http://stackoverflow.com/questions/11127538/c-clock-gettime-and-daylight-savings
+	struct tm tmv;
+	localtime_r(&ts.tv_sec, &tmv);
+	ts.tv_sec = mktime(&tmv);
+
+	r->has_setSettings = true;
+	r->setSettings.has_Clock = true;
+	r->setSettings.Clock.tv_sec = ts.tv_sec;
+	r->setSettings.Clock.tv_nsec = ts.tv_nsec;
+}
+
+/////////////////////////////////////////////////////////////////
+
+static enum enError_Type verify_Settings_Temperature1MesureTime(
+		Summary* summary, uint16_t value) {
+	if (!summary->settings.has_Temperature1MesureTime) {
+		printf("No field \"Temperature1MesureTime\" in ansver");
+		return ERR_UNKNOWN;
+	}
+	if (summary->settings.Temperature1MesureTime != value) {
+		printf("Incorrect value of \"Temperature1MesureTime\"");
+		return ERR_UNKNOWN;
+	}
+	return ERR_OK;
+}
+
+static enum enError_Type verify_Settings_Temperature2MesureTime(
+		Summary* summary, const uint16_t value) {
+	if (!summary->settings.has_Temperature2MesureTime) {
+		printf("No field \"Temperature2MesureTime\" in ansver");
+		return ERR_UNKNOWN;
+	}
+	if (summary->settings.Temperature2MesureTime != value) {
+		printf("Incorrect value of \"Temperature2MesureTime\"");
+		return ERR_UNKNOWN;
+	}
+	return ERR_OK;
+}
+
+static enum enError_Type verify_Settings_CPU_Speed(Summary* summary,
+		float value) {
+	if (!summary->settings.has_CpuSpeed) {
+		printf("No field \"CpuSpeed\" in ansver");
+		return ERR_UNKNOWN;
+	}
+	if (summary->settings.CpuSpeed != value) {
+		printf("Incorrect value of \"CpuSpeed\"");
+		return ERR_UNKNOWN;
+	}
+	return ERR_OK;
+}
+
+static enum enError_Type verify_Settings_CoeffsT1(Summary* summary,
+		const T_Coeffs* value) {
+	if (!summary->settings.has_CoeffsT1) {
+		printf("No field \"CoeffsT1\" in ansver");
+		return ERR_UNKNOWN;
+	}
+	if (memcmp(&summary->settings.CoeffsT1, value, sizeof(T_Coeffs))) {
+		printf("Incorrect value of \"CoeffsT1\"");
+		return ERR_UNKNOWN;
+	}
+	return ERR_OK;
+}
+
+static enum enError_Type verify_Settings_CoeffsT2(Summary* summary,
+		const T_Coeffs* value) {
+	if (!summary->settings.has_CoeffsT2) {
+		printf("No field \"CoeffsT2\" in ansver");
+		return ERR_UNKNOWN;
+	}
+	if (memcmp(&summary->settings.CoeffsT2, value, sizeof(T_Coeffs))) {
+		printf("Incorrect value of \"CoeffsT2\"");
+		return ERR_UNKNOWN;
+	}
+	return ERR_OK;
+}
+
+static enum enError_Type verify_Settings_Clock(Summary* summary,
+		TimeStamp * clockWas) {
+	if (!summary->settings.has_Clock) {
+		printf("No field \"Clock\" in ansver");
+		return ERR_UNKNOWN;
+	}
+	struct timespec new_date = { summary->settings.Clock.tv_sec,
+			summary->settings.Clock.tv_nsec };
+	struct timespec old_date = { clockWas->tv_sec, clockWas->tv_nsec };
+	struct timespec delta = timeDelta(&old_date, &new_date);
+
+	if (delta.tv_sec < 2)
+		return ERR_OK;
+	else {
+		struct tm _tm;
+		if (gmtime_r(&delta.tv_sec, &_tm))
+			printf("Incorrect value of device clock: %d.%d.%d %d:%d:%d.%lu",
+					_tm.tm_year, _tm.tm_mon, _tm.tm_mday, _tm.tm_hour,
+					_tm.tm_min, _tm.tm_sec, delta.tv_nsec);
+		return ERR_UNKNOWN;
+	}
+}
+
+/////////////////////////////////////////////////////////////////
+
+static enum enError_Type test_settings1(FILE* f, int id, bool verbose,
+		const Settings* value) {
+	assert(f);
+	assert(value);
+
+	struct timespec start;
+	GenericRequest request = { };
+	pb_ostream_t output = pb_ostream_from_file(f);
+	request.ReqId = id;
+	request.Type = GenericRequest_RequestType_SET_SETTINGS;
+
+	if (value->has_Clock) {
+		set_Settings_Clock(&request);
+	}
+	if (value->has_CoeffsT1)
+		set_Settings_CoeffsT1(&request, &value->CoeffsT1);
+	if (value->has_CoeffsT2)
+		set_Settings_CoeffsT2(&request, &value->CoeffsT2);
+	if (value->has_CpuSpeed)
+		set_Settings_CPU_Speed(&request, value->CpuSpeed);
+	if (value->has_Temperature1MesureTime)
+		set_Settings_Temperature1MesureTime(&request,
+				value->Temperature1MesureTime);
+	if (value->has_Temperature2MesureTime)
+		set_Settings_Temperature2MesureTime(&request,
+				value->Temperature2MesureTime);
+
+	fillTimestampStart(&start, &request);
+	if (!sendRequest(&output, GenericRequest_fields, &request))
+		return ERR_UNKNOWN;
+
+	enum enError_Type err;
+
+	//usleep(10000);
+
+	err = getConfirmation(f, id);
+	if (err != ERR_OK) {
+		// empty request test, mast return error
+		if (err != ERR_IO && !request.has_setSettings) {
+			if (verbose)
+				printf(" --- OK\n");
+			return ERR_OK;
+		} else
+			return err;
+	}
+
+	usleep(10000);
+
+	{
+		Summary summary;
+		struct timespec delta;
+
+		err = GetSummary(&summary, f, id << 2, verbose, &delta);
 		if (err != ERR_OK)
 			return err;
+
+		if (value->has_Clock) {
+			err = verify_Settings_Clock(&summary, &request.setSettings.Clock);
+			if (err)
+				return err;
+		}
+		if (value->has_CoeffsT1) {
+			err = verify_Settings_CoeffsT1(&summary, &value->CoeffsT1);
+			if (err)
+				return err;
+		}
+		if (value->has_CoeffsT2) {
+			err = verify_Settings_CoeffsT2(&summary, &value->CoeffsT2);
+			if (err)
+				return err;
+		}
+		if (value->has_CpuSpeed) {
+			err = verify_Settings_CPU_Speed(&summary, value->CpuSpeed);
+			if (err)
+				return err;
+		}
+		if (value->has_Temperature1MesureTime) {
+			err = verify_Settings_Temperature1MesureTime(&summary,
+					value->Temperature1MesureTime);
+			if (err)
+				return err;
+		}
+		if (value->has_Temperature2MesureTime) {
+			err = verify_Settings_Temperature2MesureTime(&summary,
+					value->Temperature2MesureTime);
+			if (err)
+				return err;
+		}
+	}
+	return ERR_OK;
+}
+
+#define temperature_MT1 1000
+#define temperature_MT2 995
+#define temperature_MT3 100
+
+#define CPU_SPEED1 		.has_CpuSpeed = true, .CpuSpeed = 16000000.5
+#define CPU_SPEED2 		.has_CpuSpeed = true, .CpuSpeed = 15999999.3
+#define CPU_SPEED3 		.has_CpuSpeed = true, .CpuSpeed = 16000000
+
+#define TCOEFFS1		{.T0 = 10, .C1 = 5, .C2 = 3.5, .C3 = 1e-7, .F0 = 32761.53}
+#define TCOEFFS2		{.T0 = -23.5, .C1 = 0.1, .C2 = 6e-3, .C3 = 1.75e-8, .F0 = 32758.72}
+#define TCOEFFS3		{.T0 = 0, .C1 = 1, .C2 = 0, .C3 = 0, .F0 = 0}
+
+enum enError_Type SettingsSet_test(FILE* f, int id,
+bool verbose) {
+
+	static const Settings settings_test_Matrix[] = { { },
+			{ .has_Clock = true, }, { .has_Temperature1MesureTime = true,
+					.Temperature1MesureTime =
+					temperature_MT1 }, { .has_Temperature2MesureTime = true,
+					.Temperature2MesureTime =
+					temperature_MT2 }, {
+			CPU_SPEED1 }, { .has_CoeffsT1 = true, .CoeffsT1 =
+			TCOEFFS1 }, { .has_CoeffsT2 =
+			true, .CoeffsT2 =
+			TCOEFFS2 },
+
+			{ .has_CoeffsT1 = true, .Temperature1MesureTime =
+			temperature_MT2, .has_CoeffsT2 =
+			true, .Temperature1MesureTime =
+			temperature_MT3, }, {
+			CPU_SPEED1, .has_Clock = true }, { .has_CoeffsT1 = true, .CoeffsT1 =
+			TCOEFFS2, .has_CoeffsT2 = true, .CoeffsT2 =
+			TCOEFFS1 }, { .has_CoeffsT1 = true, .Temperature1MesureTime =
+			temperature_MT3, .has_CoeffsT2 =
+			true, .Temperature2MesureTime =
+			temperature_MT3, .has_Clock =
+			true,
+			CPU_SPEED3, .has_CoeffsT1 = true, .CoeffsT1 =
+			TCOEFFS3, .has_CoeffsT2 =
+			true, .CoeffsT2 = TCOEFFS3, }, };
+
+	enum enError_Type err;
+	int retrys = MAX_RETRYS;
+	int i;
+
+	for (i = 0; i < sizeof(settings_test_Matrix) / sizeof(Settings); ++i) {
+		if (verbose)
+			printf("Settings set test #%d\t", i);
+		while (true) {
+			err = test_settings1(f, id + i, verbose, &settings_test_Matrix[i]);
+
+			switch (err) {
+			case ERR_OK:
+				retrys = MAX_RETRYS;
+				break;
+			case ERR_IO:
+
+				usleep(10000);
+				fflush(f);
+
+				retrys--;
+				if (!retrys)
+					return ERR_IO;
+
+				continue;
+			default:
+				return err;
+			}
+			break;
+		}
 	}
 	return ERR_OK;
 }
 
 static struct test tests[] = { { ping_test, "PING test" }, { summary_test,
 		"SUMMARY test" }, { value_test, "VALUE test" }, { values_test,
-		"VALUES test" }, { set_control_test, "SET_CONTROL test" } };
+		"VALUES test" }, { set_control_test, "SET_CONTROL test" }, {
+		SettingsSet_test, "SET_SETTINGS" } };
 
 int main(int argc, char **argv) {
 	FILE* f;
@@ -506,6 +844,8 @@ int main(int argc, char **argv) {
 	enum enError_Type err;
 	int retrys = MAX_RETRYS;
 
+	ProfilerStart("tests");
+
 	for (i = 0; i < sizeof(tests) / sizeof(struct test); ++i) {
 		printf("--- Running %s ", tests[i].desc);
 		if (verbose)
@@ -515,28 +855,32 @@ int main(int argc, char **argv) {
 
 			switch (err) {
 			case ERR_OK:
-				printf("--- PASSED\n");
+				printf(" --- PASSED\n");
 				retrys = MAX_RETRYS;
 				break;
 			case ERR_IO:
 				retrys--;
 				if (!retrys) {
-					printf("--- IO ERRORS, STOP ---");
+					printf(" --- IO ERRORS, STOP ---");
 					goto __FAIL;
 				}
 
+				usleep(10000);
+				fflush(f);
+
 				if (verbose)
-					printf("--- IO ERROR, retry (%d)\n", retrys);
+					printf(" --- IO ERROR, retry (%d)\n", retrys);
 
 				continue;
 			default:
-				printf("--- FAILED (%d)\n", err);
+				printf(" --- FAILED (%d)\n", err);
 				goto __FAIL;
 			}
 			break;
 		}
 	}
-__FAIL:
+	__FAIL: ProfilerStop();
+
 	putchar('\n');
 	/* Close connection */
 	fclose(f);

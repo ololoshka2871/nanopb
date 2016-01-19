@@ -56,6 +56,38 @@ static bool read_callback(pb_istream_t *stream, uint8_t *buf, size_t count)
 	return status;
 }
 
+#if 0
+static bool _read_callback(pb_istream_t *stream, uint8_t *buf, size_t count) {
+	FILE *file = (FILE*) stream->state;
+	fd_set readfd;
+	struct timeval timeout = {0, 10000};
+
+	while (count) {
+		FD_ZERO(&readfd);
+		FD_SET(file->_fileno, &readfd);
+		if (select(file->_fileno + 1, &readfd, NULL, NULL, &timeout) == 0) {
+			if (buf && count == 1) {
+				*buf = '\0';
+				--count;
+			} else if (count)
+				printf("Ressive error, timeout");
+			stream->bytes_left = 0;
+			break;
+		} else {
+			timeout.tv_sec = 0;
+			timeout.tv_usec = 2500;
+			int c = fgetc(file);
+			--count;
+			if (buf) {
+				*buf = c;
+				++buf;
+			}
+		}
+	}
+	return count == 0;
+}
+#endif
+
 pb_ostream_t pb_ostream_from_file(FILE* f)
 {
     pb_ostream_t stream = {&write_callback, (void*)f, SIZE_MAX, 0};
