@@ -302,7 +302,7 @@ enum enError_Type value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 		if (err != ERR_OK)
 			return err;
 
-		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_VALUE))
+		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_RESULT_VALUE))
 			return ERR_UNKNOWN;
 
 		struct timespec delta = TimePassedfrom(&start);
@@ -382,7 +382,7 @@ enum enError_Type values_test(FILE* f, int id, bool verbose) {
 		if (err != ERR_OK)
 			return err;
 
-		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_VALUES))
+		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_RESULT_VALUES))
 			return ERR_UNKNOWN;
 
 		struct timespec delta = TimePassedfrom(&start);

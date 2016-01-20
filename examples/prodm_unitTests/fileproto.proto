@@ -98,8 +98,8 @@ message GenericAnsver {
 	enum ResponseType {
 		PONG = 0;
 		SUMMARY = 1;
-		VALUE = 2;
-		VALUES = 3;
+		RESULT_VALUE = 2;
+		RESULT_VALUES = 3;
 		ACCEPT = 4;
 		UNKNOWN = 255;
 	}
