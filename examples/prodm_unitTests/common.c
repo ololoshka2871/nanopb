@@ -19,10 +19,11 @@ static bool write_callback(pb_ostream_t *stream, const uint8_t *buf,
 }
 
 static bool read_callback(pb_istream_t *stream, uint8_t *buf, size_t count) {
+#if 0
 	FILE *file = (FILE*) stream->state;
 	bool status;
 	fd_set readfd;
-	struct timeval timeout = { 0, 100000 };
+	struct timeval timeout = {0, 10000};
 
 	if (buf == NULL) {
 		while (count--) {
@@ -31,9 +32,9 @@ static bool read_callback(pb_istream_t *stream, uint8_t *buf, size_t count) {
 			FD_ZERO(&readfd);
 			FD_SET(file->_fileno, &readfd);
 			if (select(file->_fileno + 1, &readfd, NULL, NULL, &timeout) < 0)
-				break;
+			break;
 			else
-				fgetc(file);
+			fgetc(file);
 		}
 		return count == 0;
 	}
@@ -54,29 +55,23 @@ static bool read_callback(pb_istream_t *stream, uint8_t *buf, size_t count) {
 	status = (fread(buf, 1, count, file) == count);
 
 	return status;
-}
 
-#if 0
-static bool _read_callback(pb_istream_t *stream, uint8_t *buf, size_t count) {
+#else
 	FILE *file = (FILE*) stream->state;
 	fd_set readfd;
-	struct timeval timeout = {0, 10000};
+	struct timeval timeout;
 
 	while (count) {
+		timeout.tv_sec = 0;
+		timeout.tv_usec = 100000;
 		FD_ZERO(&readfd);
 		FD_SET(file->_fileno, &readfd);
 		if (select(file->_fileno + 1, &readfd, NULL, NULL, &timeout) == 0) {
-			if (buf && count == 1) {
-				*buf = '\0';
-				--count;
-			} else if (count)
-			printf("Ressive error, timeout");
 			stream->bytes_left = 0;
 			break;
 		} else {
-			timeout.tv_sec = 0;
-			timeout.tv_usec = 2500;
 			int c = fgetc(file);
+			//PRINT_DEBUG("RESSIVED %X", c);
 			--count;
 			if (buf) {
 				*buf = c;

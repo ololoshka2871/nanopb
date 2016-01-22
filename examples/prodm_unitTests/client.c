@@ -72,7 +72,7 @@ static void fillTimestampStart(struct timespec* start, GenericRequest* request) 
 
 static bool sendRequest(pb_ostream_t* outstream, const pb_field_t fields[],
 		const void *src_struct) {
-	if (!pb_encode(outstream, fields, src_struct)) {
+	if (!pb_encode_delimited(outstream, fields, src_struct)) {
 		printf("Error send request %s\n", PB_GET_ERROR(outstream));
 		return false;
 	}
@@ -83,7 +83,7 @@ static bool sendRequest(pb_ostream_t* outstream, const pb_field_t fields[],
 
 static enum enError_Type readAnsver(pb_istream_t* inputStream,
 		const pb_field_t fields[], void *dest_struct) {
-	if (!pb_decode(inputStream, fields, dest_struct)) {
+	if (!pb_decode_delimited(inputStream, fields, dest_struct)) {
 		printf("Decode failed: %s\n", PB_GET_ERROR(inputStream));
 		if (!strcmp(PB_GET_ERROR(inputStream), "io error"))
 			return ERR_IO;
