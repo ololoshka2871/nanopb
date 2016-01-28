@@ -9,7 +9,9 @@ LDFLAGS += -lprofiler -ltcmalloc
 
 COBJS = fileproto.pb.o client.o common.o
 
-all: client
+LATOBJS = latreader.o
+
+all: client latReader
 
 .SUFFIXES:
 
@@ -22,5 +24,12 @@ clean:
 $(COBJS): %.o: %.c
 	$(CC) -c $(CFLAGS) $^ 
 	
+$(LATOBJS): %.o: %.c
+	$(CC) -c $(CFLAGS) $^ 
+	
 client: $(COBJS)
 	$(CC) $^ -o $@ $(NANOPB_CORE) $(LDFLAGS)
+	
+latReader: $(LATOBJS)
+	$(CC) $^ -o $@ $(NANOPB_CORE) $(LDFLAGS)
+

@@ -21,6 +21,8 @@
 #include <stdbool.h>
 #include <inttypes.h>
 #include <assert.h>
+#include <termios.h>
+#include <unistd.h>
 
 #include <google/profiler.h>
 
@@ -302,7 +304,8 @@ enum enError_Type value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 		if (err != ERR_OK)
 			return err;
 
-		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_RESULT_VALUE))
+		if (!checkAnsver(&response, id,
+				GenericAnsver_ResponseType_RESULT_VALUE))
 			return ERR_UNKNOWN;
 
 		struct timespec delta = TimePassedfrom(&start);
@@ -382,7 +385,8 @@ enum enError_Type values_test(FILE* f, int id, bool verbose) {
 		if (err != ERR_OK)
 			return err;
 
-		if (!checkAnsver(&response, id, GenericAnsver_ResponseType_RESULT_VALUES))
+		if (!checkAnsver(&response, id,
+				GenericAnsver_ResponseType_RESULT_VALUES))
 			return ERR_UNKNOWN;
 
 		struct timespec delta = TimePassedfrom(&start);
@@ -857,6 +861,15 @@ int main(int argc, char **argv) {
 		return 1;
 	}
 	setvbuf(f, NULL, _IONBF, 0);
+	/*
+	 if (isatty(f->_fileno)) {
+	 struct termios ios;
+	 tcgetattr(f->_fileno, &ios);
+	 cfmakeraw(&ios);
+	 tcsetattr(f->_fileno, TCSANOW, &ios);
+	 }
+	 */
+	while (fwrite(&i, 1, 1, f) != 1);
 
 	enum enError_Type err;
 	int retrys = MAX_RETRYS;

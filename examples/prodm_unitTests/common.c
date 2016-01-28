@@ -15,7 +15,27 @@
 static bool write_callback(pb_ostream_t *stream, const uint8_t *buf,
 		size_t count) {
 	FILE *file = (FILE*) stream->state;
+	//fd_set readfd;
+	//struct timeval timeout = {0, 10000};
+	//FD_ZERO(&readfd);
+	//FD_SET(file->_fileno, &readfd);
+
+	//while( fwrite(buf, 1, count, file) != count);
 	return fwrite(buf, 1, count, file) == count;
+/*
+	while (true) {
+		int sres = select(file->_fileno + 1, NULL, &readfd, NULL, &timeout);
+		if (sres < 0)
+			return false;
+		if (sres > 0)
+			break;
+
+		timeout.tv_sec = 0;
+		timeout.tv_usec = 10000;
+	}
+	*/
+
+	return true;
 }
 
 static bool read_callback(pb_istream_t *stream, uint8_t *buf, size_t count) {
