@@ -23,6 +23,7 @@
 #include <assert.h>
 #include <termios.h>
 #include <unistd.h>
+#include <stdlib.h>
 
 #include <google/profiler.h>
 
@@ -72,13 +73,24 @@ static void fillTimestampStart(struct timespec* start, GenericRequest* request) 
 	request->has_timeStamp = true;
 }
 
-static bool sendRequest(pb_ostream_t* outstream, const pb_field_t fields[],
-		const void *src_struct) {
-	if (!pb_encode_delimited(outstream, fields, src_struct)) {
-		printf("Error send request %s\n", PB_GET_ERROR(outstream));
+static bool sendRequest(FILE* f, const pb_field_t fields[], const void *src_struct ) {
+	size_t size;
+	if (!pb_get_encoded_size(&size, fields, src_struct))
+		return false;
+
+	uint8_t *buf = (uint8_t*)malloc(size + 4);
+	pb_ostream_t output = pb_ostream_from_buffer(buf, size + 4);
+
+	if (!pb_encode_delimited(&output, fields, src_struct)) {
+		printf("Error send request %s\n", PB_GET_ERROR(&output));
 		return false;
 	}
-	fputc('\0', (FILE*) outstream->state);
+
+	if (fwrite(output.state - output.bytes_written, 1, output.bytes_written, f)
+			!= output.bytes_written)
+		return false;
+
+	free(buf);
 
 	return true;
 }
@@ -147,13 +159,12 @@ bool verbose, struct timespec *delta) {
 	struct timespec start;
 	{
 		GenericRequest request = { };
-		pb_ostream_t output = pb_ostream_from_file(f);
 		request.ReqId = id;
 		request.Type = GenericRequest_RequestType_GET_SUMMARY;
 
 		fillTimestampStart(&start, &request);
 		fillProtocolVersion(&request);
-		if (!sendRequest(&output, GenericRequest_fields, &request))
+		if (!sendRequest(f, GenericRequest_fields, &request))
 			return false;
 	}
 
@@ -201,13 +212,12 @@ enum enError_Type ping_test(FILE* f, int id, bool verbose) {
 	struct timespec start;
 	{
 		GenericRequest request = { };
-		pb_ostream_t output = pb_ostream_from_file(f);
 		request.ReqId = id;
 		request.Type = GenericRequest_RequestType_PING;
 
 		fillTimestampStart(&start, &request);
 		fillProtocolVersion(&request);
-		if (!sendRequest(&output, GenericRequest_fields, &request))
+		if (!sendRequest(f, GenericRequest_fields, &request))
 			return ERR_UNKNOWN;
 	}
 
@@ -282,7 +292,6 @@ enum enError_Type value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 	struct timespec start;
 	{
 		GenericRequest request = { };
-		pb_ostream_t output = pb_ostream_from_file(f);
 		request.ReqId = id;
 		request.Type = GenericRequest_RequestType_GET_VALUE;
 		request.getValue.valueOf = valueOf;
@@ -290,7 +299,7 @@ enum enError_Type value_test_1(FILE* f, int id, bool verbose, ValueOf valueOf) {
 
 		fillTimestampStart(&start, &request);
 		fillProtocolVersion(&request);
-		if (!sendRequest(&output, GenericRequest_fields, &request))
+		if (!sendRequest(f, GenericRequest_fields, &request))
 			return ERR_UNKNOWN;
 	}
 
@@ -365,13 +374,12 @@ enum enError_Type values_test(FILE* f, int id, bool verbose) {
 	struct timespec start;
 	{
 		GenericRequest request = { };
-		pb_ostream_t output = pb_ostream_from_file(f);
 		request.ReqId = id;
 		request.Type = GenericRequest_RequestType_GET_VALUES;
 
 		fillTimestampStart(&start, &request);
 		fillProtocolVersion(&request);
-		if (!sendRequest(&output, GenericRequest_fields, &request))
+		if (!sendRequest(f, GenericRequest_fields, &request))
 			return ERR_UNKNOWN;
 	}
 
@@ -425,7 +433,6 @@ static enum enError_Type set_control_test1(FILE* f, int id, bool verbose,
 	enum enError_Type err;
 	{
 		GenericRequest request = { };
-		pb_ostream_t output = pb_ostream_from_file(f);
 		request.ReqId = id;
 		request.Type = GenericRequest_RequestType_SET_CONTROL;
 
@@ -451,7 +458,7 @@ static enum enError_Type set_control_test1(FILE* f, int id, bool verbose,
 
 		fillTimestampStart(&start, &request);
 		fillProtocolVersion(&request);
-		if (!sendRequest(&output, GenericRequest_fields, &request))
+		if (!sendRequest(f, GenericRequest_fields, &request))
 			return ERR_UNKNOWN;
 	}
 
@@ -673,7 +680,7 @@ static enum enError_Type test_settings1(FILE* f, int id, bool verbose,
 
 	struct timespec start;
 	GenericRequest request = { };
-	pb_ostream_t output = pb_ostream_from_file(f);
+
 	request.ReqId = id;
 	request.Type = GenericRequest_RequestType_SET_SETTINGS;
 
@@ -695,7 +702,8 @@ static enum enError_Type test_settings1(FILE* f, int id, bool verbose,
 
 	fillTimestampStart(&start, &request);
 	fillProtocolVersion(&request);
-	if (!sendRequest(&output, GenericRequest_fields, &request))
+
+	if (!sendRequest(f, GenericRequest_fields, &request))
 		return ERR_UNKNOWN;
 
 	enum enError_Type err;
@@ -869,7 +877,8 @@ int main(int argc, char **argv) {
 	 tcsetattr(f->_fileno, TCSANOW, &ios);
 	 }
 	 */
-	while (fwrite(&i, 1, 1, f) != 1);
+	while (fwrite(&i, 1, 1, f) != 1)
+		;
 
 	enum enError_Type err;
 	int retrys = MAX_RETRYS;
